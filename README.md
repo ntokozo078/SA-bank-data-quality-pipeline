@@ -1,6 +1,8 @@
 # 🏦 SA Bank Data Quality & POPIA Pipeline
 
-> A production-grade South African banking data quality pipeline featuring POPIA-compliant PII masking, ML-based anomaly detection, rule-based fraud scoring, circuit breaker fault tolerance, Delta Lake storage, and a real-time Streamlit monitoring dashboard.
+[![Live Dashboard on Render](https://img.shields.io/badge/Live%20Dashboard-View%20on%20Render-46E3B7?style=for-the-badge&logo=render)](https://sa-bank-data-quality-pipeline-1.onrender.com/)
+
+> A production-grade South African banking data quality pipeline featuring POPIA-compliant PII masking, ML-based anomaly detection, rule-based fraud scoring, circuit breaker fault tolerance, Delta Lake storage, and a real-time monitoring dashboard.
 
 ---
 
@@ -83,8 +85,8 @@ Raw Data (CSV / PaySim)
 ### 1. Clone & install
 
 ```bash
-git clone https://github.com/your-username/sa-bank-data-quality-pipeline.git
-cd sa-bank-data-quality-pipeline
+git clone https://github.com/ntokozo078/SA-bank-data-quality-pipeline.git
+cd SA-bank-data-quality-pipeline
 python -m venv .venv
 .venv\Scripts\activate        # Windows
 # source .venv/bin/activate   # macOS/Linux
