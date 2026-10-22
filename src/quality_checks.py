@@ -6,48 +6,37 @@ Uses Great Expectations (v0.18 API) when available; falls back to native pandas 
 import pandas as pd
 from datetime import datetime
 
-# Safe GX import with clear version guidance
 try:
     import great_expectations as gx
     GX_AVAILABLE = True
 except Exception as e:
     GX_AVAILABLE = False
-    print(f"⚠️ Great Expectations not available ({e}). Using basic checks only.")
+    print(f"Great Expectations not available ({e}). Using basic checks only.")
 
-
-# ---------------------------------------------------------------------------
-# Public entry point
-# ---------------------------------------------------------------------------
 
 def run_data_quality_checks(df: pd.DataFrame) -> dict:
     """
     Run data quality checks. Returns a rich dict suitable for the audit log and dashboard.
     """
-    print("\n🔬 Running Data Quality Checks...")
+    print("\nRunning Data Quality Checks...")
 
     if GX_AVAILABLE:
         try:
             return _run_gx_checks(df)
         except Exception as e:
-            print(f"⚠️ Great Expectations failed: {e}\n   Falling back to basic checks...")
+            print(f"Great Expectations failed: {e}\n   Falling back to basic checks...")
 
     return run_basic_quality_checks(df)
 
-
-# ---------------------------------------------------------------------------
-# Great Expectations (v0.18 pandas-compatible)
-# ---------------------------------------------------------------------------
 
 def _run_gx_checks(df: pd.DataFrame) -> dict:
     """GX v0.18 in-memory validation using pandas datasource."""
     context = gx.get_context()
 
-    # Register a transient pandas datasource
     datasource = context.sources.add_or_update_pandas(name="sa_bank_source")
     asset = datasource.add_dataframe_asset(name="transactions")
     batch_request = asset.build_batch_request(dataframe=df)
 
-    # Build (or update) the suite
     suite_name = "sa_bank_suite"
     try:
         suite = context.get_expectation_suite(suite_name)
@@ -59,7 +48,6 @@ def _run_gx_checks(df: pd.DataFrame) -> dict:
         expectation_suite_name=suite_name,
     )
 
-    # Define expectations
     validator.expect_column_values_to_not_be_null("transaction_id")
     validator.expect_column_values_to_be_unique("transaction_id")
     if "sa_id" in df.columns:
@@ -77,10 +65,10 @@ def _run_gx_checks(df: pd.DataFrame) -> dict:
     results = validator.validate()
 
     success_pct = results.statistics.get("success_percent", 0) or 0.0
-    passed = int(results.statistics.get("successful_expectations", 0))
-    total_exp = int(results.statistics.get("evaluated_expectations", 1))
+    passed      = int(results.statistics.get("successful_expectations", 0))
+    total_exp   = int(results.statistics.get("evaluated_expectations", 1))
 
-    print(f"✅ Great Expectations Score: {success_pct:.1f}% ({passed}/{total_exp} expectations passed)")
+    print(f"Great Expectations Score: {success_pct:.1f}% ({passed}/{total_exp} expectations passed)")
     return {
         "source": "great_expectations",
         "quality_score": round(success_pct, 1),
@@ -91,13 +79,9 @@ def _run_gx_checks(df: pd.DataFrame) -> dict:
     }
 
 
-# ---------------------------------------------------------------------------
-# Pandas fallback
-# ---------------------------------------------------------------------------
-
 def run_basic_quality_checks(df: pd.DataFrame) -> dict:
-    """Lightweight fallback — no external dependencies beyond pandas."""
-    print("\n📋 Running Basic Quality Checks (Fallback)...")
+    """Lightweight fallback - no external dependencies beyond pandas."""
+    print("\nRunning Basic Quality Checks (Fallback)...")
 
     total = len(df)
     checks: dict = {"total_records": total}
@@ -105,25 +89,21 @@ def run_basic_quality_checks(df: pd.DataFrame) -> dict:
     def _count(col, condition):
         return int(condition.sum()) if col in df.columns else 0
 
-    # Nulls
     checks["missing_sa_id"]        = _count("sa_id", df.get("sa_id", pd.Series()).isnull())
     checks["missing_customer_name"] = _count("customer_name", df.get("customer_name", pd.Series()).isnull())
     checks["missing_email"]         = _count("email", df.get("email", pd.Series()).isnull())
 
-    # Duplicates
     checks["duplicate_transactions"] = (
         int(df["transaction_id"].duplicated().sum()) if "transaction_id" in df.columns else 0
     )
 
-    # Amount issues
     if "amount" in df.columns:
-        checks["negative_amounts"]    = int((df["amount"] < 0).sum())
-        checks["zero_amounts"]        = int((df["amount"] == 0).sum())
-        checks["extreme_outliers"]    = int((df["amount"] > 1_000_000).sum())
+        checks["negative_amounts"] = int((df["amount"] < 0).sum())
+        checks["zero_amounts"]     = int((df["amount"] == 0).sum())
+        checks["extreme_outliers"] = int((df["amount"] > 1_000_000).sum())
     else:
         checks["negative_amounts"] = checks["zero_amounts"] = checks["extreme_outliers"] = 0
 
-    # Pre-computed validation flags (from pipeline validators)
     if "sa_id_valid_flag" in df.columns:
         checks["invalid_sa_id"] = int((~df["sa_id_valid_flag"]).sum())
     else:
@@ -144,13 +124,12 @@ def run_basic_quality_checks(df: pd.DataFrame) -> dict:
     else:
         checks["amount_anomalies"] = checks["extreme_outliers"]
 
-    # Weighted quality score
     error_count = (
-        checks["invalid_sa_id"]       * 3 +
-        checks["invalid_cellphone"]   * 2 +
-        checks["invalid_email"]       * 2 +
-        checks["negative_amounts"]    * 2 +
-        checks["duplicate_transactions"]   +
+        checks["invalid_sa_id"]           * 3 +
+        checks["invalid_cellphone"]        * 2 +
+        checks["invalid_email"]            * 2 +
+        checks["negative_amounts"]         * 2 +
+        checks["duplicate_transactions"]       +
         checks["amount_anomalies"]
     )
     max_errors = max(total * 0.15, 1)
@@ -162,7 +141,7 @@ def run_basic_quality_checks(df: pd.DataFrame) -> dict:
     print(f"   Invalid emails       : {checks['invalid_email']:,}")
     print(f"   Duplicate TX IDs     : {checks['duplicate_transactions']:,}")
     print(f"   Amount anomalies     : {checks['amount_anomalies']:,}")
-    print(f"   ➤ Quality Score      : {score:.1f}%")
+    print(f"   Quality Score        : {score:.1f}%")
 
     return {
         "source": "basic_pandas",

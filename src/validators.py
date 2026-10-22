@@ -7,18 +7,13 @@ transaction amounts, and basic bank account number formats.
 import re
 import pandas as pd
 
-# Safe import for SA ID validation (Luhn-checksum backed)
 try:
     from stdnum.za import idnr
     STDNUM_AVAILABLE = True
 except ImportError:
     STDNUM_AVAILABLE = False
-    print("⚠️ python-stdnum not installed. SA ID validation will use basic format check only.")
+    print("python-stdnum not installed. SA ID validation will use basic format check only.")
 
-
-# ---------------------------------------------------------------------------
-# SA ID Number
-# ---------------------------------------------------------------------------
 
 def _luhn_checksum(number: str) -> int:
     """Compute Luhn check digit for a numeric string."""
@@ -76,29 +71,20 @@ def validate_sa_id(sid):
         except Exception:
             return {"valid": False, "reason": "Parse error"}
     else:
-        # Fallback: manual Luhn check
         if _luhn_checksum(sid) == 0:
             return {"valid": True, "reason": "OK (manual Luhn)"}
         return {"valid": False, "reason": "Luhn checksum failed (manual)"}
 
 
-# ---------------------------------------------------------------------------
-# Cellphone
-# ---------------------------------------------------------------------------
-
 def validate_cellphone(phone) -> bool:
     """
     Validate SA cellphone: must start with 06x, 07x, or 08x (10 digits total).
-    Landlines (011…, 021…, etc.) are rejected.
+    Landlines (011..., 021..., etc.) are rejected.
     """
     if pd.isna(phone) or phone is None:
         return False
     return bool(re.match(r'^0[6-8]\d{8}$', str(phone).strip()))
 
-
-# ---------------------------------------------------------------------------
-# Email
-# ---------------------------------------------------------------------------
 
 def validate_email(email) -> bool:
     """Basic RFC-5321 inspired email format validation."""
@@ -110,15 +96,11 @@ def validate_email(email) -> bool:
     ))
 
 
-# ---------------------------------------------------------------------------
-# Transaction Amount
-# ---------------------------------------------------------------------------
-
 def validate_amount(amount, min_val: float = 0.01, max_val: float = 1_000_000.0) -> bool:
     """
     Validate a transaction amount:
     - Must be numeric and finite
-    - Must be within [min_val, max_val] (R0.01 – R1,000,000 for retail banking)
+    - Must be within [min_val, max_val] (R0.01 - R1,000,000 for retail banking)
     """
     try:
         val = float(amount)
@@ -127,14 +109,10 @@ def validate_amount(amount, min_val: float = 0.01, max_val: float = 1_000_000.0)
         return False
 
 
-# ---------------------------------------------------------------------------
-# Bank Account Number (basic SA format)
-# ---------------------------------------------------------------------------
-
 def validate_bank_account(account) -> bool:
     """
     Basic SA bank account number validation.
-    South African accounts are typically 9–11 digits.
+    South African accounts are typically 9-11 digits.
     Does NOT perform checksum verification (requires bank-specific algorithms).
     """
     if pd.isna(account) or account is None:

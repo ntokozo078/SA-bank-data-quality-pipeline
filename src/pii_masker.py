@@ -4,8 +4,8 @@ POPIA-compliant PII masking for South African banking data.
 
 Two masking modes
 -----------------
-hash  (default) — one-way SHA-256 hash, truncated to 12 chars + "…"
-token           — UUID-based pseudonymisation stored in a lookup table (reversible by authorised users)
+hash  (default) - one-way SHA-256 hash, truncated to 12 chars + "..."
+token           - UUID-based pseudonymisation stored in a lookup table (reversible by authorised users)
 """
 import hashlib
 import uuid
@@ -48,8 +48,8 @@ def mask_pii(
     ----------
     df        : DataFrame to mask (a copy is always returned)
     salt      : Optional salt for hash mode. Falls back to PII_SALT env var.
-    mask_mode : 'hash'  → SHA-256 truncated (irreversible, fast)
-                'token' → UUID pseudonymisation with lookup table (reversible)
+    mask_mode : 'hash'  -> SHA-256 truncated (irreversible, fast)
+                'token' -> UUID pseudonymisation with lookup table (reversible)
     pii_cols  : Columns to mask. Defaults to standard PII columns.
 
     Returns
@@ -77,18 +77,17 @@ def mask_pii(
         _save_token_store(store)
         mode_label = "token (UUID pseudonymisation)"
     else:
-        # hash mode (default)
         if salt is None:
             salt = os.getenv("PII_SALT", "sa_bank_default_salt_2026")
         for col in present_cols:
             df[col] = df[col].apply(
-                lambda x: hashlib.sha256((str(x) + salt).encode()).hexdigest()[:12] + "…"
+                lambda x: hashlib.sha256((str(x) + salt).encode()).hexdigest()[:12] + "..."
                 if pd.notnull(x) else None
             )
         mode_label = "SHA-256 hash"
 
     print(
-        f"✅ PII masked [{mode_label}] | "
+        f"PII masked [{mode_label}] | "
         f"Columns: {present_cols} | "
         f"Rows: {len(df):,} | "
         f"At: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"

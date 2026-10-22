@@ -31,7 +31,7 @@ def log_run(audit: dict, history_file: str = HISTORY_FILE):
     with open(path, "a", encoding="utf-8") as f:
         f.write(json.dumps(entry, default=str) + "\n")
 
-    print(f"📝 Run logged to {history_file}")
+    print(f"Run logged to {history_file}")
 
 
 def load_history(history_file: str = HISTORY_FILE, max_runs: int = 100) -> list[dict]:
@@ -40,7 +40,7 @@ def load_history(history_file: str = HISTORY_FILE, max_runs: int = 100) -> list[
 
     Returns
     -------
-    List of dicts, ordered oldest → newest (for charting).
+    List of dicts, ordered oldest -> newest (for charting).
     """
     path = Path(history_file)
     if not path.exists():
