@@ -1,4 +1,3 @@
-# src/fraud_scorer.py
 """
 Rule-based fraud risk scoring for SA Bank DQ Pipeline.
 

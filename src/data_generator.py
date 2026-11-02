@@ -1,7 +1,6 @@
-# src/data_generator.py
 """
-Generates realistic, intentionally messy South African banking transaction data.
-Uses a proper Luhn-based SA ID builder so validation logic is actually testable.
+Generates synthetic, intentionally messy South African banking transaction data.
+Builds IDs with a correct Luhn digit so the validators have valid IDs to accept.
 """
 import pandas as pd
 import numpy as np
@@ -62,7 +61,7 @@ def generate_invalid_sa_id(rng: np.random.Generator) -> str:
 
 def generate_messy_sa_data(n: int = 5_000, seed: int = 42) -> pd.DataFrame:
     """
-    Generate realistic messy South African banking transaction data.
+    Generate messy South African banking transaction data.
 
     Parameters
     ----------
@@ -99,7 +98,7 @@ def generate_messy_sa_data(n: int = 5_000, seed: int = 42) -> pd.DataFrame:
             return f"user{rng.integers(1000, 9999)}@{rng.choice(domains)}"
         return rng.choice(["invalid.email.format", "no-at-sign", "missing@", "@nodomain"])
 
-    # Transaction amounts: log-normal, realistic SA retail range
+    # Transaction amounts: log-normal
     amounts = np.abs(rng.lognormal(mean=6.5, sigma=1.3, size=n)).round(2)
 
     # Customer names: 5% missing

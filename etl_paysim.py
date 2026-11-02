@@ -1,4 +1,3 @@
-# etl_paysim.py
 """
 ETL Pipeline for PaySim Financial Dataset.
 Transforms raw PaySim data with SA-specific quality checks, fraud scoring,
@@ -20,9 +19,12 @@ src_path = Path(__file__).parent / "src"
 if str(src_path) not in sys.path:
     sys.path.insert(0, str(src_path))
 
-from validators import validate_sa_id, validate_cellphone, validate_email
+from validators import (
+    validate_sa_id, validate_cellphone, validate_email,
+    quarantine_reasons, count_quarantine_reasons,
+)
 from pii_masker import mask_pii
-from circuit_breaker import DataCircuitBreaker
+from circuit_breaker import DataCircuitBreaker, resolve_max_failure_rate
 from fraud_scorer import score_fraud_risk, fraud_summary
 from pipeline_logger import log_run
 
@@ -41,7 +43,7 @@ def load_paysim_data(csv_path: str) -> pd.DataFrame:
 
 
 def enrich_with_sa_fields(df: pd.DataFrame, seed: int = 42) -> pd.DataFrame:
-    """Add realistic SA-specific fields to PaySim data."""
+    """Add synthetic SA fields to PaySim data."""
     print("\nEnriching data with SA-specific fields...")
     rng = np.random.default_rng(seed)
     n = len(df)
@@ -81,7 +83,7 @@ def enrich_with_sa_fields(df: pd.DataFrame, seed: int = 42) -> pd.DataFrame:
     df["transaction_id"]   = [f"TXN_{i:08d}" for i in range(n)]
     df["transaction_date"] = pd.date_range(start="2026-04-01", periods=n, freq="min")
 
-    print("   Added SA fields with realistic quality noise")
+    print("   Added SA fields with injected errors")
     return df
 
 
@@ -111,7 +113,11 @@ def validate_paysim_data(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def run_paysim_etl(input_path: str, sample_size: int | None = None) -> pd.DataFrame | None:
+def run_paysim_etl(
+    input_path: str,
+    sample_size: int | None = None,
+    max_failure_rate: float | None = None,
+) -> pd.DataFrame | None:
     """Main PaySim ETL pipeline."""
     print("Starting PaySim ETL Pipeline...\n")
 
@@ -131,20 +137,26 @@ def run_paysim_etl(input_path: str, sample_size: int | None = None) -> pd.DataFr
     print("\nScoring fraud risk...")
     df = score_fraud_risk(df)
 
-    bad_mask     = (~df["sa_id_valid_flag"]) | (~df["cellphone_valid"]) | (~df["email_valid"]) | df["is_anomaly"]
-    bad_records  = df[bad_mask].copy()
+    reasons      = quarantine_reasons(df)
+    bad_mask     = reasons != ""
+    bad_records  = df[bad_mask].assign(quarantine_reason=reasons[bad_mask])
     clean_df     = df[~bad_mask].copy()
     failure_rate = len(bad_records) / len(df) * 100 if len(df) > 0 else 0
+    reason_counts = count_quarantine_reasons(reasons)
 
     print(f"\nQuality Check Results:")
     print(f"   Total records : {len(df):,}")
     print(f"   Bad records   : {len(bad_records):,} ({failure_rate:.1f}%)")
     print(f"   Clean records : {len(clean_df):,}")
+    print(f"   Reasons       : {reason_counts}")
 
-    bad_records.to_csv("data/quarantine/quarantined_batch.csv", index=False)
+    mask_pii(bad_records).to_csv("data/quarantine/quarantined_batch.csv", index=False)
 
     print("\nCircuit Breaker Evaluation...")
-    breaker = DataCircuitBreaker(failure_threshold=5, max_failure_rate=30.0)
+    breaker = DataCircuitBreaker(
+        failure_threshold=5,
+        max_failure_rate=resolve_max_failure_rate(max_failure_rate),
+    )
 
     if not breaker.check_batch(len(bad_records), len(df)):
         print("Pipeline halted by circuit breaker.")
@@ -173,6 +185,7 @@ def run_paysim_etl(input_path: str, sample_size: int | None = None) -> pd.DataFr
         "clean_records":      len(clean_masked),
         "failure_rate_pct":   round(failure_rate, 2),
         "circuit_state":      breaker.state,
+        "quarantine_reasons": reason_counts,
         "fraud_scoring":      fraud_stats,
         "data_saved_to":      output_path,
     }
@@ -203,12 +216,18 @@ if __name__ == "__main__":
         default=10_000,
         help="Number of rows to sample (default 10,000; 0 = use all)"
     )
+    parser.add_argument(
+        "--max-failure-rate",
+        type=float,
+        default=None,
+        help="Bad-record percentage that halts the batch (default 55, or the MAX_FAILURE_RATE env var)"
+    )
     args = parser.parse_args()
 
     sample = args.sample if args.sample > 0 else None
     try:
-        run_paysim_etl(args.input, sample)
-        print("\nETL finished successfully!")
+        run_paysim_etl(args.input, sample, args.max_failure_rate)
+        print("\nETL finished.")
     except Exception as e:
         print(f"\nFailed: {e}")
         import traceback

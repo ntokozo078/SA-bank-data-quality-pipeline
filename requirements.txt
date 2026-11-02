@@ -24,7 +24,7 @@ deltalake>=0.15.0
 python-dotenv>=1.0.0
 
 # Dashboard (optional)
-streamlit>=1.28.0
+streamlit>=1.50.0
 
 # Optional: for development
 pytest>=7.4.0

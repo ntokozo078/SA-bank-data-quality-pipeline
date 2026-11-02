@@ -1,6 +1,5 @@
-# src/pii_masker.py
 """
-POPIA-compliant PII masking for South African banking data.
+PII masking for South African banking data.
 
 Two masking modes
 -----------------
@@ -17,6 +16,20 @@ from datetime import datetime
 
 
 TOKEN_STORE_PATH = "reports/pii_token_store.json"
+DEFAULT_SALT = "sa_bank_default_salt_2026"
+_default_salt_warned = False
+
+
+def _warn_default_salt_once():
+    # Printed rather than warnings.warn, because imported libraries change the warning filters.
+    global _default_salt_warned
+    if not _default_salt_warned:
+        print(
+            "WARNING: PII_SALT is not set, so the public default salt is being used. "
+            "SA IDs have few possible values, so these hashes can be brute-forced. "
+            "Set PII_SALT for anything other than synthetic data."
+        )
+        _default_salt_warned = True
 
 
 def _load_token_store() -> dict:
@@ -42,7 +55,7 @@ def mask_pii(
     pii_cols: list[str] | None = None,
 ) -> pd.DataFrame:
     """
-    Mask PII columns for POPIA compliance.
+    Mask PII columns.
 
     Parameters
     ----------
@@ -78,7 +91,10 @@ def mask_pii(
         mode_label = "token (UUID pseudonymisation)"
     else:
         if salt is None:
-            salt = os.getenv("PII_SALT", "sa_bank_default_salt_2026")
+            salt = os.getenv("PII_SALT")
+        if salt is None:
+            _warn_default_salt_once()
+            salt = DEFAULT_SALT
         for col in present_cols:
             df[col] = df[col].apply(
                 lambda x: hashlib.sha256((str(x) + salt).encode()).hexdigest()[:12] + "..."

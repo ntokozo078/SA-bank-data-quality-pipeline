@@ -1,6 +1,5 @@
-# src/validators.py
 """
-SA-specific field validators for POPIA-compliant banking data quality checks.
+SA-specific field validators for banking data quality checks.
 Covers SA ID numbers (with Luhn checksum), cellphones, emails,
 transaction amounts, and basic bank account number formats.
 """
@@ -119,3 +118,30 @@ def validate_bank_account(account) -> bool:
         return False
     cleaned = re.sub(r'\s+', '', str(account))
     return bool(re.match(r'^\d{9,11}$', cleaned))
+
+
+def quarantine_reasons(df: pd.DataFrame) -> pd.Series:
+    """
+    Return every failed check per row, joined with "; ". Rows that pass get "".
+    Run this before masking, because masking hides the values being checked.
+    Checks whose columns are missing from df are skipped.
+    """
+    checks = {
+        "invalid_sa_id":       ("sa_id_valid_flag", lambda s: ~s),
+        "invalid_cellphone":   ("cellphone_valid",  lambda s: ~s),
+        "invalid_email":       ("email_valid",      lambda s: ~s),
+        "missing_name":        ("customer_name",    lambda s: s.isnull()),
+        "anomalous_amount":    ("is_anomaly",       lambda s: s),
+        "amount_out_of_range": ("amount_valid",     lambda s: ~s),
+    }
+    reasons = pd.Series("", index=df.index, dtype=object)
+    for label, (col, failed) in checks.items():
+        if col in df.columns:
+            reasons = reasons + failed(df[col]).map({True: f"{label}; ", False: ""})
+    return reasons.str.rstrip("; ")
+
+
+def count_quarantine_reasons(reasons: pd.Series) -> dict:
+    """Count how often each reason appears. A row with two reasons counts under both."""
+    counts = reasons[reasons != ""].str.split("; ").explode().value_counts()
+    return {label: int(n) for label, n in counts.items()}

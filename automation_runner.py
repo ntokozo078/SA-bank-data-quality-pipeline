@@ -1,4 +1,3 @@
-# automation_runner.py
 """
 Automated Orchestrator for SA Bank Data Quality Pipeline.
 Runs on schedule, handles retries, and logs execution to file.
@@ -63,10 +62,11 @@ def send_alert(subject: str, message: str):
 
 
 def find_latest_csv(directory: str) -> str:
-    """Return path to the most recently modified CSV in the watch directory."""
-    csv_files = list(Path(directory).glob("*.csv"))
+    """Return path to the most recently modified PaySim CSV in the watch directory."""
+    # main.py writes messy_sa_transactions.csv to the same folder, and the PaySim ETL can't read it.
+    csv_files = list(Path(directory).glob("PS_*.csv"))
     if not csv_files:
-        raise FileNotFoundError(f"No CSV files found in {directory}")
+        raise FileNotFoundError(f"No PaySim CSV files (PS_*.csv) found in {directory}")
     return str(max(csv_files, key=os.path.getmtime))
 
 

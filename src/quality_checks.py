@@ -1,4 +1,3 @@
-# src/quality_checks.py
 """
 Data quality checks for SA Bank pipeline.
 Uses Great Expectations (v0.18 API) when available; falls back to native pandas checks.

@@ -1,4 +1,3 @@
-# src/pipeline_logger.py
 """
 Rolling pipeline run logger for SA Bank DQ Pipeline.
 Appends each run's audit entry to a JSONL file (one JSON object per line).

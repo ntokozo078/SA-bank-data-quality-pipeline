@@ -1,4 +1,3 @@
-# main.py
 #!/usr/bin/env python3
 """
 SA Bank Data Quality Pipeline - Main Entry Point
@@ -9,10 +8,12 @@ Usage
 -----
     python main.py              # default 5,000 records
     python main.py 10000        # custom record count
+    python main.py --max-failure-rate 20   # lower the circuit breaker limit
 """
 import pandas as pd
 import numpy as np
 from datetime import datetime
+import argparse
 import os
 import json
 import sys
@@ -23,9 +24,12 @@ if str(src_path) not in sys.path:
     sys.path.insert(0, str(src_path))
 
 from data_generator import generate_messy_sa_data
-from validators import validate_sa_id, validate_cellphone, validate_email, validate_amount
+from validators import (
+    validate_sa_id, validate_cellphone, validate_email, validate_amount,
+    quarantine_reasons, count_quarantine_reasons,
+)
 from pii_masker import mask_pii
-from circuit_breaker import DataCircuitBreaker
+from circuit_breaker import DataCircuitBreaker, resolve_max_failure_rate
 from quality_checks import run_data_quality_checks
 from fraud_scorer import score_fraud_risk, fraud_summary
 from pipeline_logger import log_run
@@ -38,13 +42,13 @@ def ensure_directories():
     print("Directory structure ready")
 
 
-def run_pipeline(n_records: int = 5_000) -> pd.DataFrame | None:
+def run_pipeline(n_records: int = 5_000, max_failure_rate: float | None = None) -> pd.DataFrame | None:
     """Execute the full SA Bank Data Quality Pipeline."""
     print("Starting SA Bank Data Quality Pipeline...\n")
 
     ensure_directories()
 
-    print("Step 1: Generating realistic messy South African data...")
+    print("Step 1: Generating messy South African data...")
     df = generate_messy_sa_data(n=n_records)
 
     print("\nStep 2: Running SA-specific quality validations...")
@@ -73,36 +77,38 @@ def run_pipeline(n_records: int = 5_000) -> pd.DataFrame | None:
     print("\nStep 4: Scoring fraud risk...")
     df = score_fraud_risk(df)
 
-    bad_mask = (
-        ~df["sa_id_valid_flag"]
-        | ~df["cellphone_valid"]
-        | ~df["email_valid"]
-        | df["is_anomaly"]
-        | df["customer_name"].isnull()
-    )
-    bad_records = df[bad_mask].copy()
+    reasons     = quarantine_reasons(df)
+    bad_mask    = reasons != ""
+    bad_records = df[bad_mask].assign(quarantine_reason=reasons[bad_mask])
     clean_df    = df[~bad_mask].copy()
 
     failure_rate = len(bad_records) / len(df) * 100 if len(df) > 0 else 0
+    reason_counts = count_quarantine_reasons(reasons)
     print(f"\nDetected {len(bad_records):,} bad records out of {len(df):,} ({failure_rate:.1f}%)")
+    print(f"Quarantine reasons: {reason_counts}")
 
+    # Quarantine files sit outside the Silver layer but still hold PII, so mask them too.
+    quarantine_masked = mask_pii(bad_records)
     quarantine_path = "data/quarantine/quarantined_batch.csv"
-    bad_records.to_csv(quarantine_path, index=False)
+    quarantine_masked.to_csv(quarantine_path, index=False)
     print(f"Bad records quarantined -> {quarantine_path}")
 
     print("\nStep 5: Circuit Breaker Evaluation...")
-    breaker = DataCircuitBreaker(failure_threshold=5, max_failure_rate=8.0)
+    breaker = DataCircuitBreaker(
+        failure_threshold=5,
+        max_failure_rate=resolve_max_failure_rate(max_failure_rate),
+    )
 
     if not breaker.check_batch(len(bad_records), len(df)):
         print("Pipeline stopped due to high failure rate. Fix upstream data sources.")
-        bad_records.to_csv("data/quarantine/bad_batch_circuit_open.csv", index=False)
+        quarantine_masked.to_csv("data/quarantine/bad_batch_circuit_open.csv", index=False)
         return None
 
     print("\nStep 6: Applying fixes to clean data...")
     if "category" in clean_df.columns:
         clean_df["category"] = clean_df["category"].fillna("Unknown")
 
-    print("Step 7: Masking PII (POPIA compliance)...")
+    print("Step 7: Masking PII...")
     clean_masked = mask_pii(clean_df)
 
     print("Step 8: Saving clean data to Delta Lake...")
@@ -117,10 +123,10 @@ def run_pipeline(n_records: int = 5_000) -> pd.DataFrame | None:
         clean_masked.to_csv(csv_fallback, index=False)
         output_path = csv_fallback
 
-    print("\nStep 9: Running comprehensive DQ checks...")
+    print("\nStep 9: Running DQ checks...")
     dq_results = run_data_quality_checks(clean_df)
 
-    print("\nStep 10: Creating POPIA-compliant Audit Log...")
+    print("\nStep 10: Writing audit log...")
     fraud_stats = fraud_summary(df)
     audit = {
         "pipeline_run_time":      datetime.now().isoformat(),
@@ -133,6 +139,7 @@ def run_pipeline(n_records: int = 5_000) -> pd.DataFrame | None:
         "circuit_breaker_state":  breaker.state,
         "circuit_breaker_config": breaker.to_dict(),
         "quarantine_file":        quarantine_path,
+        "quarantine_reasons":     reason_counts,
         "data_saved_to":          output_path,
         "dq_checks":              dq_results,
         "fraud_scoring":          fraud_stats,
@@ -159,30 +166,38 @@ def run_pipeline(n_records: int = 5_000) -> pd.DataFrame | None:
     print(f"Raw Records      : {audit['raw_records']:,}")
     print(f"Bad Records      : {audit['bad_records']:,} ({audit['failure_rate_percent']}%)")
     print(f"Clean Records    : {audit['clean_records']:,}")
-    print(f"DQ Score         : {dq_score:.1f}%")
+    print(f"DQ Suite Score   : {dq_score:.1f}%")
     print(f"Fraud Flagged    : {fraud_stats.get('fraud_flagged', 0):,} ({fraud_stats.get('fraud_rate_pct', 0):.1f}%)")
     print(f"Circuit State    : {audit['circuit_breaker_state']}")
-    print(f"Status           : Pipeline completed successfully!")
+    print(f"Status           : Completed")
     print("=" * 55)
 
     return clean_masked
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="SA Bank Data Quality Pipeline")
+    parser.add_argument("n_records", type=int, nargs="?", default=5_000, help="Records to generate")
+    parser.add_argument(
+        "--max-failure-rate",
+        type=float,
+        default=None,
+        help="Bad-record percentage that halts the batch (default 55, or the MAX_FAILURE_RATE env var)",
+    )
+    args = parser.parse_args()
+
     try:
-        n = int(sys.argv[1]) if len(sys.argv) > 1 else 5_000
-        clean_data = run_pipeline(n_records=n)
+        clean_data = run_pipeline(n_records=args.n_records, max_failure_rate=args.max_failure_rate)
 
         if clean_data is not None:
-            print("\nSA Bank Data Quality Pipeline finished successfully!")
-            print("   Project ready for GitHub portfolio")
+            print("\nPipeline finished.")
             print("   Launch dashboard: streamlit run dashboard.py")
     except KeyboardInterrupt:
         print("\nPipeline interrupted by user")
         sys.exit(1)
     except Exception as e:
         print(f"\nPipeline failed: {e}")
-        print("   Check: 1) dependencies installed, 2) folder permissions, 3) Python 3.9+")
+        print("   Check: 1) dependencies installed, 2) folder permissions, 3) Python 3.10+")
         import traceback
         traceback.print_exc()
         sys.exit(1)
